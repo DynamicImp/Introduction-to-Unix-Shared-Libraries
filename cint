@@ -1,0 +1,110 @@
+  #!/usr/bin/perl
+  #
+  #	cint:	a prototype "C with interfaces" to C translator..
+  #
+  #		This tool contains an experimental "C with go-style interfaces"
+  #		to C translator based on some thoughts I had about how we could
+  #		implement Go-style interfaces to packages in C.  It's a side
+  #		effect of a LinkedIn discussion that I started in the Plain
+  #		Ordinary C group, to discuss my TEFEL idea - Nigel Evans
+  #		suggested some form of lightweight OO for C, on the lines of
+  #		JavaScript's prototype-based model, and I said "or what
+  #		about Go-style interfaces.."  and then started thinking:-)
+  #
+  #		This is the result.  It translates a single F.interface
+  #		"C+Interfaces" source file to the corresponding F.h
+  #		file implementing that interface - the F.c will be produced
+  #		by a later version of this tool
+  #
+  #	(C) August 2018, Duncan C. White
+  #
+  
+  use strict;
+  use warnings;
+  use 5.010;
+  use Data::Dumper;
+  use Getopt::Long;
+  use Function::Parameters;
+  use FindBin qw($Bin);
+  
+  use lib "$Bin";
+  use Support;
+  use Sig;
+
+  my $interface;	# name of current interface
+  my %isfunc;		# set of all marked functions in the interface
+  my @func;		# the marked functions in the order we saw them
+  my @structfield;	# the structure fields
+  my %seensig;		# the set of signatures we've already seen
+  my %funcsig;		# function -> signature mapping
+
+    die "Usage: cint filename\n" unless @ARGV == 1;
+  
+  my $inputfilename = shift;
+  $interface = $inputfilename;
+  $interface =~ s/\.interface$//;
+  my $cfilename = "$interface.c";
+  my $hfilename = "$interface.h";
+  
+  openfile( $inputfilename ) || die "cint: can't open $inputfilename\n";
+  
+  unlink( $cfilename );
+  unlink( $hfilename );
+
+    my $htext = "";		# generated .h file contents
+  while( defined( $_ = nextline() ) )
+  {
+  	$htext .= handle_line( $_ );
+  }
+  
+    #
+  # my $error = checkfunc( $funcname );
+  #	Check whether function $funcname is already defined - if so, return
+  #	a sensible error message, otherwise return undef.  Also marks the
+  #	function as defined..
+  #
+  fun checkfunc( $funcname )
+  {
+  	return "function $funcname already defined" if $isfunc{$funcname}++;
+  	return undef;
+  }
+
+  
+  #
+  # my $text = handle_line( $line );
+  #	handle $line, modifying @structfield and %seensig, returning any
+  #	text (in plain C format) that should go straight into the .h file.
+  #
+  fun handle_line( $line )
+  {
+  	return $line unless $line =~ /^%/;		# copy non-% lines
+  
+  	if( $line =~ s/^(\s*)%func\s*// )		# found %func?
+  	{
+  		#print "found %func\n";
+  	        my $origindent = $1;
+  		my( $ok, $info ) = parse_func_line( $line, \&checkfunc );
+  		fatal( $line, $info ) unless $ok;
+  
+  		my $funcname = $info->{FUNCNAME};
+  		my $rettype  = $info->{RETURNTYPE};
+  		my $origline = $info->{ORIGLINE};
+  		my $params   = $info->{PARAMS};
+  
+  		print "debug: found func $origline\n";
+  
+  		my $htext = "";
+
+		# TODO: generate a typedef for this function in $htext
+		# and record that the structure (to be generated later)
+		# contains one more field.
+  
+  		return $htext;
+  	}
+  	fatal( $line, "Unhandled % line" );
+  }
+
+  # build the .h file
+  open( my $hfh, '>', $hfilename ) || die "cint: can't create $hfilename\n";
+  print $hfh $htext;
+  close( $hfh );
